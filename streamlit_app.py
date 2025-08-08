@@ -10,6 +10,7 @@ from collections import defaultdict
 
 MAX_LINKS_PER_ARTICLE = 6
 
+
 def fetch_article_html(url):
     try:
         response = requests.get(url, timeout=10)
@@ -19,15 +20,18 @@ def fetch_article_html(url):
         print(f"Error fetching {url}: {e}")
         return None
 
+
 def extract_domain_path(url):
     parsed = urlparse(url)
     return parsed.path
 
+
 def clean_keyword(kw):
     return kw.lower().strip()
 
+
 def inject_links(html, link_injections):
-    soup = BeautifulSoup(html, "html5lib")
+    soup = BeautifulSoup(html, "html.parser")
     full_text = str(soup)
     injected = 0
     used_keywords = set()
@@ -40,7 +44,7 @@ def inject_links(html, link_injections):
             continue
 
         pattern = rf'(?<![>\w])({re.escape(keyword)})(?![<\w])'
-        link_tag = f'<a href="{target_url}">\1</a>'
+        link_tag = f'<a href="{target_url}">\\1</a>'
 
         new_text, count = re.subn(pattern, link_tag, full_text, count=1, flags=re.IGNORECASE)
         if count > 0:
@@ -50,10 +54,17 @@ def inject_links(html, link_injections):
 
     return full_text, injected
 
+
 def run_interlinking(input_csv, output_dir):
     df = pd.read_csv(input_csv)
     df['keywords'] = df['keywords'].fillna('').apply(lambda x: [clean_keyword(k) for k in x.split(',') if k.strip()])
     url_keywords_map = dict(zip(df['url'], df['keywords']))
+
+    keyword_to_url = {}
+    for url, keywords in url_keywords_map.items():
+        for kw in keywords:
+            if kw not in keyword_to_url:
+                keyword_to_url[kw] = url  # Link keyword to its source url
 
     url_html_map = {}
     url_text_map = {}
@@ -61,14 +72,8 @@ def run_interlinking(input_csv, output_dir):
         html = fetch_article_html(url)
         if html:
             url_html_map[url] = html
-            soup = BeautifulSoup(html, 'html5lib')
-            text = soup.get_text(separator=" ", strip=True)
-            url_text_map[url] = text.lower()
-
-    keyword_to_urls = defaultdict(set)
-    for url, keywords in url_keywords_map.items():
-        for kw in keywords:
-            keyword_to_urls[kw].add(url)
+            soup = BeautifulSoup(html, 'html.parser')
+            url_text_map[url] = soup.get_text(" ", strip=True).lower()
 
     results = []
     for source_url, source_text in url_text_map.items():
@@ -76,17 +81,18 @@ def run_interlinking(input_csv, output_dir):
         used_keywords = set()
         link_injections = []
 
-        for keyword, target_urls in keyword_to_urls.items():
+        for keyword, target_url in keyword_to_url.items():
+            if target_url == source_url:
+                continue  # Don’t link to itself
             if keyword in used_keywords:
                 continue
             if keyword not in source_text:
                 continue
 
-            for target_url in target_urls:
-                if target_url != source_url:
-                    link_injections.append((keyword, extract_domain_path(target_url)))
-                    used_keywords.add(keyword)
-                    break
+            link_injections.append((keyword, target_url))
+            used_keywords.add(keyword)
+            if len(link_injections) >= MAX_LINKS_PER_ARTICLE:
+                break
 
         updated_html, link_count = inject_links(html, link_injections)
 
