@@ -1,3 +1,5 @@
+streamlit
+pandas
 beautifulsoup4
-pip install streamlit pandas beautifulsoup4 openpyxl requests
-
+openpyxl
+requests
