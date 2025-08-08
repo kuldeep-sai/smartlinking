@@ -1,47 +1,40 @@
 import streamlit as st
-import tempfile
 import os
+import tempfile
+import zipfile
 from interlinking_core import run_interlinking
 
-st.set_page_config(page_title="SEO Smart Interlinking Tool", layout="wide")
-st.title("🔗 Smart Interlinking MVP")
-st.markdown("Upload your input CSV to generate contextual interlinks.")
+st.set_page_config(page_title="Smart Interlinking Tool", layout="wide")
+st.title("🔗 Smart Internal Interlinking Tool")
 
-uploaded_file = st.file_uploader("📤 Upload Input CSV", type=["csv"])
+st.markdown("""
+Upload a CSV with two columns:
+- `url`: Article URLs
+- `keywords`: Comma-separated keywords to target per URL
+""")
+
+uploaded_file = st.file_uploader("Upload your CSV", type=["csv"])
 
 if uploaded_file:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        input_path = os.path.join(tmpdir, "input.csv")
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        input_path = os.path.join(tmpdirname, "input.csv")
         with open(input_path, "wb") as f:
-            f.write(uploaded_file.read())
+            f.write(uploaded_file.getvalue())
 
-        with st.spinner("Processing articles and injecting links..."):
-            try:
-                output_excel_path, output_dir = run_interlinking(input_path, tmpdir)
+        st.info("⏳ Running interlinking logic... Please wait.")
+        excel_path, output_dir = run_interlinking(input_path, tmpdirname)
 
-                st.success("✅ Interlinking completed!")
+        # ZIP output files
+        zip_path = os.path.join(tmpdirname, "interlinked_output.zip")
+        with zipfile.ZipFile(zip_path, "w") as zipf:
+            for root, _, files in os.walk(output_dir):
+                for file in files:
+                    zipf.write(os.path.join(root, file), arcname=file)
 
-                # Excel output
-                with open(output_excel_path, "rb") as excel_file:
-                    st.download_button(
-                        label="📥 Download Report (Excel)",
-                        data=excel_file,
-                        file_name="interlinking_output.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+        st.success("✅ Interlinking complete!")
 
-                # HTML file downloads
-                st.markdown("### 📁 Download Updated HTML Files")
-                html_files = [f for f in os.listdir(output_dir) if f.endswith(".html")]
-                for file in html_files:
-                    path = os.path.join(output_dir, file)
-                    with open(path, "rb") as html_file:
-                        st.download_button(
-                            label=f"Download {file}",
-                            data=html_file,
-                            file_name=file,
-                            mime="text/html"
-                        )
+        with open(zip_path, "rb") as f:
+            st.download_button("📥 Download All Output (ZIP)", f, file_name="interlinked_output.zip")
 
-            except Exception as e:
-                st.error(f"❌ Error during processing: {e}")
+        with open(excel_path, "rb") as f:
+            st.download_button("📊 Download Excel Summary", f, file_name="interlinking_output.xlsx")
