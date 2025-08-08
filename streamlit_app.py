@@ -2,41 +2,48 @@
 
 import streamlit as st
 import os
+import tempfile
 from interlinking_core import run_interlinking
 
-st.set_page_config(page_title="Smart Interlinking Tool", layout="centered")
-st.title("🔗 Smart Interlinking MVP")
+st.set_page_config(page_title="Smart Interlinking MVP", layout="wide")
 
-uploaded_file = st.file_uploader("Upload your input CSV with URLs and keywords", type=["csv"])
+st.title("🔗 Smart SEO Interlinking Tool")
+st.markdown("Upload a CSV with your article URLs and target keywords to auto-generate contextual internal links.")
 
-if uploaded_file:
-    output_dir = "outputs"
-    os.makedirs(output_dir, exist_ok=True)
+uploaded_file = st.file_uploader("📤 Upload input CSV", type=["csv"])
 
-    with open("temp_input.csv", "wb") as f:
-        f.write(uploaded_file.getbuffer())
+if uploaded_file is not None:
+    st.success("✅ File uploaded successfully.")
 
-    if st.button("Run Interlinking"):
-        with st.spinner("Processing..."):
-            excel_path, output_html_dir = run_interlinking("temp_input.csv", output_dir)
+    with st.spinner("Processing..."):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = os.path.join(tmpdir, "input.csv")
+            with open(input_path, "wb") as f:
+                f.write(uploaded_file.read())
 
-        st.success("✅ Interlinking complete!")
+            try:
+                output_excel_path, output_dir = run_interlinking(input_path, tmpdir)
 
-        with open(excel_path, "rb") as f:
-            st.download_button(
-                label="📥 Download Interlinking Report (Excel)",
-                data=f,
-                file_name="interlinking_output.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-        st.markdown("### 💡 Linked Articles:")
-        for file in os.listdir(output_html_dir):
-            if file.endswith(".html"):
-                with open(os.path.join(output_html_dir, file), "r", encoding="utf-8") as f:
+                # Download Excel report
+                with open(output_excel_path, "rb") as excel_file:
                     st.download_button(
-                        label=f"Download {file}",
-                        data=f.read(),
-                        file_name=file,
-                        mime="text/html"
+                        label="📥 Download Interlinking Report (Excel)",
+                        data=excel_file,
+                        file_name="interlinking_output.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
+
+                # Download updated HTML files
+                st.markdown("📁 **Download Updated HTML Articles**:")
+                for file in os.listdir(output_dir):
+                    if file.endswith(".html"):
+                        file_path = os.path.join(output_dir, file)
+                        with open(file_path, "rb") as html_file:
+                            st.download_button(
+                                label=f"Download {file}",
+                                data=html_file,
+                                file_name=file,
+                                mime="text/html"
+                            )
+            except Exception as e:
+                st.error(f"🚫 Error during processing: {e}")
