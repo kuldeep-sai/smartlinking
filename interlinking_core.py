@@ -1,5 +1,3 @@
-# interlinking_core.py
-
 import os
 import pandas as pd
 import requests
@@ -10,7 +8,6 @@ from collections import defaultdict
 
 MAX_LINKS_PER_ARTICLE = 6
 
-
 def fetch_article_html(url):
     try:
         response = requests.get(url, timeout=10)
@@ -20,15 +17,12 @@ def fetch_article_html(url):
         print(f"Error fetching {url}: {e}")
         return None
 
-
 def extract_domain_path(url):
     parsed = urlparse(url)
-    return parsed.path
-
+    return parsed.path.strip("/").replace("/", "_") or "index"
 
 def clean_keyword(kw):
     return kw.lower().strip()
-
 
 def inject_links(html, link_injections):
     soup = BeautifulSoup(html, "html.parser")
@@ -54,17 +48,10 @@ def inject_links(html, link_injections):
 
     return full_text, injected
 
-
 def run_interlinking(input_csv, output_dir):
     df = pd.read_csv(input_csv)
     df['keywords'] = df['keywords'].fillna('').apply(lambda x: [clean_keyword(k) for k in x.split(',') if k.strip()])
     url_keywords_map = dict(zip(df['url'], df['keywords']))
-
-    keyword_to_url = {}
-    for url, keywords in url_keywords_map.items():
-        for kw in keywords:
-            if kw not in keyword_to_url:
-                keyword_to_url[kw] = url  # Link keyword to its source url
 
     url_html_map = {}
     url_text_map = {}
@@ -73,7 +60,13 @@ def run_interlinking(input_csv, output_dir):
         if html:
             url_html_map[url] = html
             soup = BeautifulSoup(html, 'html.parser')
-            url_text_map[url] = soup.get_text(" ", strip=True).lower()
+            text = soup.get_text(separator=" ", strip=True)
+            url_text_map[url] = text.lower()
+
+    keyword_to_urls = defaultdict(set)
+    for url, keywords in url_keywords_map.items():
+        for kw in keywords:
+            keyword_to_urls[kw].add(url)
 
     results = []
     for source_url, source_text in url_text_map.items():
@@ -81,22 +74,19 @@ def run_interlinking(input_csv, output_dir):
         used_keywords = set()
         link_injections = []
 
-        for keyword, target_url in keyword_to_url.items():
-            if target_url == source_url:
-                continue  # Don’t link to itself
-            if keyword in used_keywords:
-                continue
-            if keyword not in source_text:
+        for keyword, target_urls in keyword_to_urls.items():
+            if keyword in used_keywords or keyword not in source_text:
                 continue
 
-            link_injections.append((keyword, target_url))
-            used_keywords.add(keyword)
-            if len(link_injections) >= MAX_LINKS_PER_ARTICLE:
-                break
+            for target_url in target_urls:
+                if target_url != source_url:
+                    link_injections.append((keyword, target_url))
+                    used_keywords.add(keyword)
+                    break
 
         updated_html, link_count = inject_links(html, link_injections)
 
-        filename = f"linked_{os.path.basename(extract_domain_path(source_url)) or 'index.html'}"
+        filename = f"linked_{extract_domain_path(source_url)}.html"
         output_html_path = os.path.join(output_dir, filename)
         with open(output_html_path, "w", encoding="utf-8") as f:
             f.write(updated_html)
@@ -114,6 +104,3 @@ def run_interlinking(input_csv, output_dir):
     output_excel_path = os.path.join(output_dir, "interlinking_output.xlsx")
     pd.DataFrame(results).to_excel(output_excel_path, index=False)
     return output_excel_path, output_dir
-
-# Example usage
-# run_interlinking("input_sample.csv", "./outputs")
